@@ -79,6 +79,9 @@ type Transaction struct {
 	Gas              int
 	GasPrice         big.Int
 	Input            string
+	R                string
+	S                string
+	V                string
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
