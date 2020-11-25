@@ -1,6 +1,6 @@
 # Ethrpc
 
-orked from [onrik/ethrpc](https://github.com/onrik/ethrpc)
+forked from [onrik/ethrpc](https://github.com/onrik/ethrpc)
 
 Golang client for ethereum [JSON RPC API](https://github.com/ethereum/wiki/wiki/JSON-RPC).
 
