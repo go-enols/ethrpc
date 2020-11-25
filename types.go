@@ -84,6 +84,11 @@ type Transaction struct {
 	V                string
 }
 
+func (t *Transaction) MarshalJSON() ([]byte, error) {
+	proxy := (*proxyTransaction)(unsafe.Pointer(t))
+	return json.Marshal(proxy)
+}
+
 // UnmarshalJSON implements the json.Unmarshaler interface.
 func (t *Transaction) UnmarshalJSON(data []byte) error {
 	proxy := new(proxyTransaction)
