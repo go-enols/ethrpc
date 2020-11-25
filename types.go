@@ -235,6 +235,12 @@ type proxyTransactionReceipt struct {
 
 type hexInt int
 
+func (i hexInt) MarshalJSON() ([]byte, error) {
+	hex := IntToHex(int(i))
+
+	return json.Marshal(hex)
+}
+
 func (i *hexInt) UnmarshalJSON(data []byte) error {
 	result, err := ParseInt(string(bytes.Trim(data, `"`)))
 	*i = hexInt(result)
@@ -243,6 +249,12 @@ func (i *hexInt) UnmarshalJSON(data []byte) error {
 }
 
 type hexBig big.Int
+
+func (i hexBig) MarshalJSON() ([]byte, error) {
+	hex := BigToHex(big.Int(i))
+
+	return json.Marshal(hex)
+}
 
 func (i *hexBig) UnmarshalJSON(data []byte) error {
 	result, err := ParseBigInt(string(bytes.Trim(data, `"`)))
