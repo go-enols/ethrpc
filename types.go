@@ -197,6 +197,9 @@ type proxyTransaction struct {
 	Gas              hexInt  `json:"gas"`
 	GasPrice         hexBig  `json:"gasPrice"`
 	Input            string  `json:"input"`
+	R                string  `json:"r"`
+	S                string  `json:"s"`
+	V                string  `json:"v"`
 }
 
 type proxyLog struct {

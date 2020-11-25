@@ -900,7 +900,10 @@ func (s *EthRPCTestSuite) TestGetTransaction() {
         "nonce": "0xa8",
         "to": "0x8d12a197cb00d4747a1fe03395095ce2a5cc6819",
         "transactionIndex": "0x98",
-        "value": "0x9184e72a000"
+				"value": "0x9184e72a000",
+				"r": "0x32c9f5da77aaacb83fbf3ce61c08f49668add324195e8cba3c9490508e39a3b4",
+        "s": "0x43052bcfef39d0012daccf8d93876e89269aefce78c5dad47c633e3297da153e",
+        "v": "0x1c"
     }`
 	s.registerResponse(result, func(body []byte) {
 		s.methodEqual(body, "ggg")
@@ -920,6 +923,9 @@ func (s *EthRPCTestSuite) TestGetTransaction() {
 	s.Require().Equal(250000, transaction.Gas)
 	s.Require().Equal(newBigInt("4000000000"), transaction.GasPrice)
 	s.Require().Equal("0x522", transaction.Input)
+	s.Require().Equal("0x32c9f5da77aaacb83fbf3ce61c08f49668add324195e8cba3c9490508e39a3b4", transaction.R)
+	s.Require().Equal("0x43052bcfef39d0012daccf8d93876e89269aefce78c5dad47c633e3297da153e", transaction.S)
+	s.Require().Equal("0x1c", transaction.V)
 }
 
 func (s *EthRPCTestSuite) TestEthGetTransactionByHash() {

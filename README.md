@@ -1,9 +1,6 @@
 # Ethrpc
-[![Tests](https://github.com/onrik/ethrpc/workflows/Tests/badge.svg)](https://github.com/onrik/ethrpc/actions)
-[![Coverage Status](https://coveralls.io/repos/github/onrik/ethrpc/badge.svg?branch=master)](https://coveralls.io/github/onrik/ethrpc?branch=master)
-[![Go Report Card](https://goreportcard.com/badge/github.com/onrik/ethrpc)](https://goreportcard.com/report/github.com/onrik/ethrpc)
-[![PkgGoDev](https://pkg.go.dev/badge/github.com/onrik/ethrpc)](https://pkg.go.dev/github.com/onrik/ethrpc)
-[![Donate with Ethereum](https://en.cryptobadges.io/badge/micro/0xf4144308d6D67A1F00a61A596c0eB7B08411344a)](https://en.cryptobadges.io/donate/0xf4144308d6D67A1F00a61A596c0eB7B08411344a)
+
+orked from [onrik/ethrpc](https://github.com/onrik/ethrpc)
 
 Golang client for ethereum [JSON RPC API](https://github.com/ethereum/wiki/wiki/JSON-RPC).
 
@@ -80,7 +77,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/onrik/ethrpc"
+    "github.com/everFinance/ethrpc"
 )
 
 func main() {
