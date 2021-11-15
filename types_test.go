@@ -87,6 +87,46 @@ func TestTransactionUnmarshal(t *testing.T) {
 	require.Equal(t, "0xd10e3be2bc8f959bc8c41cf65f60de721cf89adf", tx.To)
 	require.Equal(t, 3, *tx.TransactionIndex)
 	require.Equal(t, *big.NewInt(0), tx.Value)
+
+	data = []byte(`{
+        "accessList": [],
+        "blockHash": "0x8403c6eeef5258f02ef31b81c44d429084041d09c4277e06ee244d77d7f2d8cc",
+        "blockNumber": "0xcf8829",
+        "chainId": "0x1",
+        "from": "0x3ecef08d0e2dad803847e052249bb4f8bff2d5bb",
+        "gas": "0x186a0",
+        "gasPrice": "0x16466978fc",
+        "hash": "0x37aa58204bf86db054dd8ebac958b39d679e3c0914cdb25cf64213bbf36f0494",
+        "input": "0x",
+        "maxFeePerGas": "0x3b1d8d58a0",
+        "maxPriorityFeePerGas": "0x0",
+        "nonce": "0x6eaa7",
+        "r": "0xfd640aefb12eca445db0021cf25c00298a7c15600cfa7d7491477282805276f8",
+        "s": "0x6db8b6c02ac3210ee1ff11e43fea6345033137e1743029979019d12096c3def6",
+        "to": "0x260feaab4e6db589dd84ebf22a52e0c501b64a19",
+        "transactionIndex": "0x14",
+        "type": "0x2",
+        "v": "0x0",
+        "value": "0x5672d101bcd400"
+    }`)
+
+	err = json.Unmarshal(data, tx)
+
+	require.Nil(t, err)
+	require.Equal(t, "0x8403c6eeef5258f02ef31b81c44d429084041d09c4277e06ee244d77d7f2d8cc", tx.BlockHash)
+	require.Equal(t, 13600809, *tx.BlockNumber)
+	require.Equal(t, 1, *tx.ChainID)
+	require.Equal(t, "0x3ecef08d0e2dad803847e052249bb4f8bff2d5bb", tx.From)
+	require.Equal(t, 100000, tx.Gas)
+	require.Equal(t, *big.NewInt(95670597884), tx.GasPrice)
+	require.Equal(t, "0x37aa58204bf86db054dd8ebac958b39d679e3c0914cdb25cf64213bbf36f0494", tx.Hash)
+	require.Equal(t, "0x", tx.Input)
+	require.Equal(t, big.NewInt(253898872992), tx.MaxFeePerGas)
+	require.Equal(t, big.NewInt(0), tx.MaxPriorityFeePerGas)
+	require.Equal(t, 453287, tx.Nonce)
+	require.Equal(t, "0x260feaab4e6db589dd84ebf22a52e0c501b64a19", tx.To)
+	require.Equal(t, 20, *tx.TransactionIndex)
+	require.Equal(t, *big.NewInt(24333090000000000), tx.Value)
 }
 
 func TestLogUnmarshal(t *testing.T) {

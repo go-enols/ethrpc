@@ -68,20 +68,25 @@ func (t T) MarshalJSON() ([]byte, error) {
 
 // Transaction - transaction object
 type Transaction struct {
-	Hash             string
-	Nonce            int
-	BlockHash        string
-	BlockNumber      *int
-	TransactionIndex *int
-	From             string
-	To               string
-	Value            big.Int
-	Gas              int
-	GasPrice         big.Int
-	Input            string
-	R                string
-	S                string
-	V                string
+	BlockHash            string
+	BlockNumber          *int
+	From                 string
+	Gas                  int
+	GasPrice             big.Int
+	MaxFeePerGas         *big.Int
+	MaxPriorityFeePerGas *big.Int
+	Hash                 string
+	Input                string
+	Nonce                int
+	To                   string
+	TransactionIndex     *int
+	Value                big.Int
+	Type                 int
+	AccessesList         []interface{}
+	ChainID              *int
+	V                    string
+	R                    string
+	S                    string
 }
 
 func (t *Transaction) MarshalJSON() ([]byte, error) {
@@ -191,20 +196,25 @@ type proxySyncing struct {
 }
 
 type proxyTransaction struct {
-	Hash             string  `json:"hash"`
-	Nonce            hexInt  `json:"nonce"`
-	BlockHash        string  `json:"blockHash"`
-	BlockNumber      *hexInt `json:"blockNumber"`
-	TransactionIndex *hexInt `json:"transactionIndex"`
-	From             string  `json:"from"`
-	To               string  `json:"to"`
-	Value            hexBig  `json:"value"`
-	Gas              hexInt  `json:"gas"`
-	GasPrice         hexBig  `json:"gasPrice"`
-	Input            string  `json:"input"`
-	R                string  `json:"r"`
-	S                string  `json:"s"`
-	V                string  `json:"v"`
+	BlockHash            string        `json:"blockHash"`
+	BlockNumber          *hexInt       `json:"blockNumber"`
+	From                 string        `json:"from"`
+	Gas                  hexInt        `json:"gas"`
+	GasPrice             hexBig        `json:"gasPrice"`
+	MaxFeePerGas         *hexBig       `json:"maxFeePerGas"`
+	MaxPriorityFeePerGas *hexBig       `json:"maxPriorityFeePerGas"`
+	Hash                 string        `json:"hash"`
+	Input                string        `json:"input"`
+	Nonce                hexInt        `json:"nonce"`
+	To                   string        `json:"to"`
+	TransactionIndex     *hexInt       `json:"transactionIndex"`
+	Value                hexBig        `json:"value"`
+	Type                 hexInt        `json:"type"`
+	AccessesList         []interface{} `json:"accessList"`
+	ChainID              *hexInt       `json:"chainId"`
+	V                    string        `json:"v"`
+	R                    string        `json:"r"`
+	S                    string        `json:"s"`
 }
 
 type proxyLog struct {
