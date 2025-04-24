@@ -63,6 +63,9 @@ func NewEthRPC(url string, options ...func(rpc *EthRPC)) *EthRPC {
 }
 
 func (rpc *EthRPC) call(method string, target interface{}, params ...interface{}) error {
+	if len(params) == 0 {
+		params = []interface{}{}
+	}
 	result, err := rpc.Call(method, params...)
 	if err != nil {
 		return err
