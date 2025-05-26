@@ -28,6 +28,26 @@ func ParseFloat(value *big.Int, decimal Decimal) (float64, error) {
 	return result, nil
 }
 
+func ParseBig(value float64, decimal Decimal) *big.Int {
+	// 将单位转换为 *big.Int
+	unitBigInt := big.NewInt(int64(decimal))
+
+	// 将浮点数值转换为 *big.Float
+	valueBigFloat := new(big.Float).SetFloat64(value)
+
+	// 将单位转换为 *big.Float
+	unitBigFloat := new(big.Float).SetInt(unitBigInt)
+
+	// 计算 Wei 的值
+	weiBigFloat := new(big.Float).Mul(valueBigFloat, unitBigFloat)
+
+	// 将 *big.Float 转换为 *big.Int
+	weiBigInt := new(big.Int)
+	weiBigFloat.Int(weiBigInt) // 注意：这里可能会有精度损失
+
+	return weiBigInt
+}
+
 // ParseInt parse hex string value to int
 func ParseInt(value string) (int, error) {
 	i, err := strconv.ParseInt(strings.TrimPrefix(value, "0x"), 16, 64)
