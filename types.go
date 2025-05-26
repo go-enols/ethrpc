@@ -7,6 +7,33 @@ import (
 	"unsafe"
 )
 
+type TxStatus rune
+
+const (
+	TxFail    TxStatus = iota - 1 // Fail 交易失败
+	TxPending                     // Pending 交易进行中或未上链
+	TxSuccess                     // Success 交易完成
+)
+
+type BlockStatus string //BlockStatus 默认区块参数可以使用以下选项
+
+const (
+	Earliest  BlockStatus = "earliest"  // Earliest 表示最早/创世区块
+	LaTest    BlockStatus = "latest"    // LaTest 最新挖出的区块
+	Safe      BlockStatus = "safe"      // Safe 最新且安全的头部区块
+	Finalized BlockStatus = "finalized" // Finalized 最新的最终确定的区块
+	Pending   BlockStatus = "pending"   // Pending 未决状态/交易
+)
+
+type Decimal int64 // Params 以太坊的单位
+
+const (
+	Wei   Decimal = iota + 1
+	U             = Wei * 1e6
+	GWei          = Wei * 1e9
+	Ether         = Wei * 1e18
+)
+
 // Syncing - object with syncing data info
 type Syncing struct {
 	IsSyncing     bool
