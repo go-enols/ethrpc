@@ -1,4 +1,4 @@
-module github.com/everFinance/ethrpc
+module github.com/go-enols/ethrpc
 
 go 1.15
 
