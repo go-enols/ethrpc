@@ -18,11 +18,14 @@ func ParseBool(value string) bool {
 }
 
 func ParseFloat(value *big.Int, decimal Decimal) (float64, error) {
-	i, err := ParseInt("0x" + value.Text(16))
-	if err != nil {
-		return 0, err
+	if value == nil {
+		return 0, fmt.Errorf("value is nil")
 	}
-	return float64(i) / float64(decimal), nil
+
+	fValue := new(big.Float).SetInt(value)
+	fDecimal := new(big.Float).SetInt64(int64(decimal))
+	result, _ := new(big.Float).Quo(fValue, fDecimal).Float64()
+	return result, nil
 }
 
 // ParseInt parse hex string value to int
