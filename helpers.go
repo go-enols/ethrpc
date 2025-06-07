@@ -58,6 +58,16 @@ func ParseInt(value string) (int, error) {
 	return int(i), nil
 }
 
+// ParseInt parse hex string value to int
+func ParseInt64(value string) (int64, error) {
+	i, err := strconv.ParseInt(strings.TrimPrefix(value, "0x"), 16, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	return i, nil
+}
+
 // ParseBigInt parse hex string value to big.Int
 func ParseBigInt(value string) (big.Int, error) {
 	i := big.Int{}
