@@ -2,6 +2,7 @@ package ethrpc
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,10 @@ import (
 	"os"
 
 	"log"
+
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 // EthError - ethereum error
@@ -44,6 +49,22 @@ type EthRPC struct {
 	Debug  bool
 }
 
+func (rpc *EthRPC) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
+	var hex hexutil.Big
+	if err := rpc.CallContext(ctx, &hex, "eth_gasPrice"); err != nil {
+		return nil, err
+	}
+	return (*big.Int)(&hex), nil
+}
+
+func (rpc *EthRPC) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
+	var hex hexutil.Big
+	if err := rpc.CallContext(ctx, &hex, "eth_maxPriorityFeePerGas"); err != nil {
+		return nil, err
+	}
+	return (*big.Int)(&hex), nil
+}
+
 // New create new rpc client with given url
 func New(url string, options ...func(rpc *EthRPC)) *EthRPC {
 	rpc := &EthRPC{
@@ -61,6 +82,10 @@ func New(url string, options ...func(rpc *EthRPC)) *EthRPC {
 // NewEthRPC create new rpc client with given url
 func NewEthRPC(url string, options ...func(rpc *EthRPC)) *EthRPC {
 	return New(url, options...)
+}
+
+func (rpc *EthRPC) CallContext(ctx context.Context, result interface{}, method string, args ...interface{}) error {
+	return rpc.call(method, result, args...)
 }
 
 func (rpc *EthRPC) call(method string, target interface{}, params ...interface{}) error {
@@ -378,6 +403,15 @@ func (rpc *EthRPC) EthEstimateGas(transaction T) (int, error) {
 	return ParseInt(response)
 }
 
+func (rpc *EthRPC) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, error) {
+	var hex hexutil.Uint64
+	err := rpc.call("eth_estimateGas", &hex, toCallArg(msg))
+	if err != nil {
+		return 0, err
+	}
+	return uint64(hex), nil
+}
+
 func (rpc *EthRPC) getBlock(method string, withTransactions bool, params ...interface{}) (*Block, error) {
 	result, err := rpc.RawCall(method, params...)
 	if err != nil {
@@ -505,6 +539,23 @@ func (rpc *EthRPC) EthGetLogs(params FilterParams) ([]Log, error) {
 	var logs = []Log{}
 	err := rpc.call("eth_getLogs", &logs, params)
 	return logs, err
+}
+
+// CodeAt returns the contract code of the given account.
+// The block number can be nil, in which case the code is taken from the latest known block.
+func (rpc *EthRPC) CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, error) {
+	var result hexutil.Bytes
+	err := rpc.call("eth_getCode", &result, account, toBlockNumArg(blockNumber))
+	return result, err
+}
+
+func (rpc *EthRPC) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
+	var hex hexutil.Bytes
+	err := rpc.call("eth_call", &hex, toCallArg(msg), toBlockNumArg(blockNumber))
+	if err != nil {
+		return nil, err
+	}
+	return hex, nil
 }
 
 // Eth1 returns 1 ethereum value (10^18 wei)

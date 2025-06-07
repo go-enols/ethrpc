@@ -1,7 +1,11 @@
 package ethrpc
 
 import (
+	"context"
 	"math/big"
+
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 type EthereumAPI interface {
@@ -45,6 +49,11 @@ type EthereumAPI interface {
 	EthGetFilterChanges(filterID string) ([]Log, error)
 	EthGetFilterLogs(filterID string) ([]Log, error)
 	EthGetLogs(params FilterParams) ([]Log, error)
+	CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, error)
+	EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, error)
+	CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
+	SuggestGasPrice(ctx context.Context) (*big.Int, error)
+	SuggestGasTipCap(ctx context.Context) (*big.Int, error)
 }
 
 var _ EthereumAPI = (*EthRPC)(nil)
