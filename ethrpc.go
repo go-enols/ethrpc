@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 )
 
 // EthError - ethereum error
@@ -556,6 +557,151 @@ func (rpc *EthRPC) CallContract(ctx context.Context, msg ethereum.CallMsg, block
 		return nil, err
 	}
 	return hex, nil
+}
+
+func (rpc *EthRPC) SendTransaction(ctx context.Context, tx *types.Transaction) error {
+	// 将交易序列化为RLP编码的十六进制字符串
+	data, err := tx.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	// 发送原始交易
+	_, err = rpc.EthSendRawTransaction(hexutil.Encode(data))
+	return err
+}
+
+func (rpc *EthRPC) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
+	// 获取区块信息
+	var blockNum int
+	if number == nil {
+		// 获取最新区块号
+		latestNum, err := rpc.EthBlockNumber()
+		if err != nil {
+			return nil, err
+		}
+		blockNum = latestNum
+	} else {
+		blockNum = int(number.Int64())
+	}
+
+	block, err := rpc.EthGetBlockByNumber(blockNum, false)
+	if err != nil {
+		return nil, err
+	}
+	if block == nil {
+		return nil, nil
+	}
+
+	// 解析Nonce
+	nonce, err := ParseInt64(block.Nonce)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse nonce: %v", err)
+	}
+
+	// 转换为types.Header
+	header := &types.Header{
+		ParentHash: common.HexToHash(block.ParentHash),
+		UncleHash:  common.HexToHash(block.Sha3Uncles),
+		Coinbase:   common.HexToAddress(block.Miner),
+		Root:       common.HexToHash(block.StateRoot),
+		TxHash:     common.HexToHash(block.TransactionsRoot),
+		Number:     big.NewInt(int64(block.Number)),
+		GasLimit:   uint64(block.GasLimit),
+		GasUsed:    uint64(block.GasUsed),
+		Time:       uint64(block.Timestamp),
+		Extra:      common.FromHex(block.ExtraData),
+		Nonce:      types.EncodeNonce(uint64(nonce)),
+		Difficulty: (*big.Int)(&block.Difficulty),
+	}
+
+	return header, nil
+}
+
+func (rpc *EthRPC) PendingCodeAt(ctx context.Context, account common.Address) ([]byte, error) {
+	// 获取pending状态下的合约代码
+	code, err := rpc.EthGetCode(account.Hex(), "pending")
+	if err != nil {
+		return nil, err
+	}
+
+	return common.FromHex(code), nil
+}
+
+func (rpc *EthRPC) PendingNonceAt(ctx context.Context, account common.Address) (uint64, error) {
+	// 获取pending状态下的nonce
+	nonce, err := rpc.EthGetTransactionCount(account.Hex(), "pending")
+	if err != nil {
+		return 0, err
+	}
+
+	return uint64(nonce), nil
+}
+
+func (rpc *EthRPC) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+	// 构建过滤器参数
+	params := FilterParams{
+		FromBlock: toBlockNumArg(q.FromBlock),
+		ToBlock:   toBlockNumArg(q.ToBlock),
+	}
+
+	// 设置地址过滤
+	if len(q.Addresses) > 0 {
+		addresses := make([]string, len(q.Addresses))
+		for i, addr := range q.Addresses {
+			addresses[i] = addr.Hex()
+		}
+		params.Address = addresses
+	}
+
+	// 设置主题过滤
+	if len(q.Topics) > 0 {
+		topics := make([][]string, len(q.Topics))
+		for i, topicSet := range q.Topics {
+			if len(topicSet) > 0 {
+				topics[i] = make([]string, len(topicSet))
+				for j, topic := range topicSet {
+					topics[i][j] = topic.Hex()
+				}
+			}
+		}
+		params.Topics = topics
+	}
+
+	// 获取日志
+	logs, err := rpc.EthGetLogs(params)
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换为types.Log格式
+	result := make([]types.Log, len(logs))
+	for i, log := range logs {
+		topics := make([]common.Hash, len(log.Topics))
+		for j, topic := range log.Topics {
+			topics[j] = common.HexToHash(topic)
+		}
+
+		result[i] = types.Log{
+			Address:     common.HexToAddress(log.Address),
+			Topics:      topics,
+			Data:        common.FromHex(log.Data),
+			BlockNumber: uint64(log.BlockNumber),
+			TxHash:      common.HexToHash(log.TransactionHash),
+			TxIndex:     uint(log.TransactionIndex),
+			BlockHash:   common.HexToHash(log.BlockHash),
+			Index:       uint(log.LogIndex),
+			Removed:     log.Removed,
+		}
+	}
+
+	return result, nil
+}
+
+func (rpc *EthRPC) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error) {
+	// 注意：这个实现是一个简化版本，因为当前的RPC客户端不支持WebSocket订阅
+	// 在实际应用中，你可能需要使用WebSocket连接来实现真正的订阅功能
+	return nil, fmt.Errorf("subscription not supported in HTTP RPC client, use WebSocket client instead")
 }
 
 // Eth1 returns 1 ethereum value (10^18 wei)
