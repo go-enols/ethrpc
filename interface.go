@@ -2,7 +2,9 @@ package ethrpc
 
 import (
 	"context"
+	"encoding/json"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -10,11 +12,16 @@ import (
 )
 
 type EthereumAPI interface {
+	// 基础 Web3 方法
 	Web3ClientVersion() (string, error)
 	Web3Sha3(data []byte) (string, error)
+	
+	// 网络相关方法
 	NetVersion() (string, error)
 	NetListening() (bool, error)
 	NetPeerCount() (int, error)
+	
+	// 以太坊协议方法
 	EthProtocolVersion() (string, error)
 	EthSyncing() (*Syncing, error)
 	EthCoinbase() (string, error)
@@ -50,6 +57,8 @@ type EthereumAPI interface {
 	EthGetFilterChanges(filterID string) ([]Log, error)
 	EthGetFilterLogs(filterID string) ([]Log, error)
 	EthGetLogs(params FilterParams) ([]Log, error)
+	
+	// Go-Ethereum 兼容方法
 	CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, error)
 	EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, error)
 	CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
@@ -61,6 +70,35 @@ type EthereumAPI interface {
 	PendingNonceAt(ctx context.Context, account common.Address) (uint64, error)
 	FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
 	SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQuery, ch chan<- types.Log) (ethereum.Subscription, error)
+	
+	// 底层调用方法
+	URL() string
+	Call(method string, params ...interface{}) (json.RawMessage, error)
+	RawCall(method string, params ...interface{}) (json.RawMessage, error)
+	CallContext(ctx context.Context, result interface{}, method string, args ...interface{}) error
+	CallList(requests []BatchRequest) (*BatchResult, error)
+	
+	// 批量处理方法
+	BatchWeb3ClientVersion(count int) ([]string, []error, error)
+	BatchEthBlockNumber(count int) ([]int, []error, error)
+	BatchEthGasPrice(count int) ([]big.Int, []error, error)
+	BatchEthGetBalance(addresses []string, block string) ([]big.Int, []error, error)
+	BatchEthGetTransactionCount(addresses []string, block string) ([]int, []error, error)
+	BatchEthGetCode(addresses []string, block string) ([]string, []error, error)
+	BatchEthCall(transactions []T, tag string) ([]string, []error, error)
+	BatchEthEstimateGas(transactions []T) ([]int, []error, error)
+	BatchEthGetTransactionByHash(hashes []string) ([]*Transaction, []error, error)
+	BatchEthGetTransactionReceipt(hashes []string) ([]*TransactionReceipt, []error, error)
+	BatchEthGetBlockByNumber(numbers []int, withTransactions bool) ([]*Block, []error, error)
+	BatchEthGetBlockByHash(hashes []string, withTransactions bool) ([]*Block, []error, error)
+	
+	// 工具方法
+	Eth1() *big.Int
+	
+	// 等待交易完成的方法
+	WaitForTransactionReceipt(txHash string, timeout time.Duration, pollInterval time.Duration) (*TransactionReceipt, error)
+	BatchWaitForTransactionReceipts(txHashes []string, timeout time.Duration, pollInterval time.Duration) ([]*TransactionReceipt, error)
+	MonitorTransactionStatus(txHash string, statusChan chan<- TransactionStatus, timeout time.Duration, pollInterval time.Duration)
 }
 
 var _ EthereumAPI = (*EthRPC)(nil)

@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
 	"net/http"
 	"os"
+	"time"
 
 	"log"
 
@@ -40,6 +42,18 @@ type ethRequest struct {
 	JSONRPC string        `json:"jsonrpc"`
 	Method  string        `json:"method"`
 	Params  []interface{} `json:"params"`
+}
+
+// BatchRequest represents a single request in a batch
+type BatchRequest struct {
+	Method string        `json:"method"`
+	Params []interface{} `json:"params"`
+}
+
+// BatchResult represents the result of a batch call
+type BatchResult struct {
+	Results []json.RawMessage `json:"results"`
+	Errors  []error           `json:"errors"`
 }
 
 // EthRPC - Ethereum rpc client
@@ -152,6 +166,386 @@ func (rpc *EthRPC) Call(method string, params ...interface{}) (json.RawMessage, 
 
 	return resp.Result, nil
 
+}
+
+// CallList executes multiple JSON-RPC calls in a single batch request
+func (rpc *EthRPC) CallList(requests []BatchRequest) (*BatchResult, error) {
+	// Create batch request array
+	batchRequests := make([]ethRequest, len(requests))
+	for i, req := range requests {
+		batchRequests[i] = ethRequest{
+			ID:      i + 1,
+			JSONRPC: "2.0",
+			Method:  req.Method,
+			Params:  req.Params,
+		}
+	}
+
+	body, err := json.Marshal(batchRequests)
+	if err != nil {
+		return nil, err
+	}
+
+	response, err := rpc.client.Post(rpc.url, "application/json", bytes.NewBuffer(body))
+	if response != nil {
+		defer response.Body.Close()
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if rpc.Debug {
+		rpc.log.Println(fmt.Sprintf("Batch Request: %s\nBatch Response: %s\n", body, data))
+	}
+
+	// Parse batch response
+	var batchResponses []ethResponse
+	if err := json.Unmarshal(data, &batchResponses); err != nil {
+		return nil, err
+	}
+
+	// Process results and errors
+	results := make([]json.RawMessage, len(requests))
+	errors := make([]error, len(requests))
+
+	// Create a map to match response IDs to request indices
+	responseMap := make(map[int]ethResponse)
+	for _, resp := range batchResponses {
+		responseMap[resp.ID] = resp
+	}
+
+	// Fill results and errors arrays in the correct order
+	for i := 0; i < len(requests); i++ {
+		if resp, exists := responseMap[i+1]; exists {
+			if resp.Error != nil {
+				errors[i] = *resp.Error
+				results[i] = nil
+			} else {
+				errors[i] = nil
+				results[i] = resp.Result
+			}
+		} else {
+			// Response missing for this request
+			errors[i] = fmt.Errorf("no response received for request %d", i+1)
+			results[i] = nil
+		}
+	}
+
+	return &BatchResult{
+		Results: results,
+		Errors:  errors,
+	}, nil
+}
+
+// BatchWeb3ClientVersion returns multiple client versions in batch
+func (rpc *EthRPC) BatchWeb3ClientVersion(count int) ([]string, []error, error) {
+	requests := make([]BatchRequest, count)
+	for i := 0; i < count; i++ {
+		requests[i] = BatchRequest{Method: "web3_clientVersion", Params: []interface{}{}}
+	}
+	return rpc.processBatchStringResults(requests)
+}
+
+// BatchEthBlockNumber returns multiple block numbers in batch
+func (rpc *EthRPC) BatchEthBlockNumber(count int) ([]int, []error, error) {
+	requests := make([]BatchRequest, count)
+	for i := 0; i < count; i++ {
+		requests[i] = BatchRequest{Method: "eth_blockNumber", Params: []interface{}{}}
+	}
+	return rpc.processBatchIntResults(requests)
+}
+
+// BatchEthGasPrice returns multiple gas prices in batch
+func (rpc *EthRPC) BatchEthGasPrice(count int) ([]big.Int, []error, error) {
+	requests := make([]BatchRequest, count)
+	for i := 0; i < count; i++ {
+		requests[i] = BatchRequest{Method: "eth_gasPrice", Params: []interface{}{}}
+	}
+	return rpc.processBatchBigIntResults(requests)
+}
+
+// BatchEthGetBalance returns multiple account balances in batch
+func (rpc *EthRPC) BatchEthGetBalance(addresses []string, block string) ([]big.Int, []error, error) {
+	requests := make([]BatchRequest, len(addresses))
+	for i, addr := range addresses {
+		requests[i] = BatchRequest{Method: "eth_getBalance", Params: []interface{}{addr, block}}
+	}
+	return rpc.processBatchBigIntResults(requests)
+}
+
+// BatchEthGetTransactionCount returns multiple transaction counts in batch
+func (rpc *EthRPC) BatchEthGetTransactionCount(addresses []string, block string) ([]int, []error, error) {
+	requests := make([]BatchRequest, len(addresses))
+	for i, addr := range addresses {
+		requests[i] = BatchRequest{Method: "eth_getTransactionCount", Params: []interface{}{addr, block}}
+	}
+	return rpc.processBatchIntResults(requests)
+}
+
+// BatchEthGetCode returns multiple contract codes in batch
+func (rpc *EthRPC) BatchEthGetCode(addresses []string, block string) ([]string, []error, error) {
+	requests := make([]BatchRequest, len(addresses))
+	for i, addr := range addresses {
+		requests[i] = BatchRequest{Method: "eth_getCode", Params: []interface{}{addr, block}}
+	}
+	return rpc.processBatchStringResults(requests)
+}
+
+// BatchEthCall executes multiple contract calls in batch
+func (rpc *EthRPC) BatchEthCall(transactions []T, tag string) ([]string, []error, error) {
+	requests := make([]BatchRequest, len(transactions))
+	for i, tx := range transactions {
+		requests[i] = BatchRequest{Method: "eth_call", Params: []interface{}{tx, tag}}
+	}
+	return rpc.processBatchStringResults(requests)
+}
+
+// BatchEthEstimateGas estimates gas for multiple transactions in batch
+func (rpc *EthRPC) BatchEthEstimateGas(transactions []T) ([]int, []error, error) {
+	requests := make([]BatchRequest, len(transactions))
+	for i, tx := range transactions {
+		requests[i] = BatchRequest{Method: "eth_estimateGas", Params: []interface{}{tx}}
+	}
+	return rpc.processBatchIntResults(requests)
+}
+
+// BatchEthGetTransactionByHash returns multiple transactions by hash in batch
+func (rpc *EthRPC) BatchEthGetTransactionByHash(hashes []string) ([]*Transaction, []error, error) {
+	requests := make([]BatchRequest, len(hashes))
+	for i, hash := range hashes {
+		requests[i] = BatchRequest{Method: "eth_getTransactionByHash", Params: []interface{}{hash}}
+	}
+	return rpc.processBatchTransactionResults(requests)
+}
+
+// BatchEthGetTransactionReceipt returns multiple transaction receipts in batch
+func (rpc *EthRPC) BatchEthGetTransactionReceipt(hashes []string) ([]*TransactionReceipt, []error, error) {
+	requests := make([]BatchRequest, len(hashes))
+	for i, hash := range hashes {
+		requests[i] = BatchRequest{Method: "eth_getTransactionReceipt", Params: []interface{}{hash}}
+	}
+	return rpc.processBatchTransactionReceiptResults(requests)
+}
+
+// BatchEthGetBlockByNumber returns multiple blocks by number in batch
+func (rpc *EthRPC) BatchEthGetBlockByNumber(numbers []int, withTransactions bool) ([]*Block, []error, error) {
+	requests := make([]BatchRequest, len(numbers))
+	for i, num := range numbers {
+		requests[i] = BatchRequest{Method: "eth_getBlockByNumber", Params: []interface{}{IntToHex(num), withTransactions}}
+	}
+	return rpc.processBatchBlockResults(requests)
+}
+
+// BatchEthGetBlockByHash returns multiple blocks by hash in batch
+func (rpc *EthRPC) BatchEthGetBlockByHash(hashes []string, withTransactions bool) ([]*Block, []error, error) {
+	requests := make([]BatchRequest, len(hashes))
+	for i, hash := range hashes {
+		requests[i] = BatchRequest{Method: "eth_getBlockByHash", Params: []interface{}{hash, withTransactions}}
+	}
+	return rpc.processBatchBlockResults(requests)
+}
+
+// Helper methods for processing batch results
+
+// processBatchStringResults processes batch results and returns string arrays
+func (rpc *EthRPC) processBatchStringResults(requests []BatchRequest) ([]string, []error, error) {
+	batchResult, err := rpc.CallList(requests)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	results := make([]string, len(requests))
+	errors := make([]error, len(requests))
+
+	for i := 0; i < len(requests); i++ {
+		if batchResult.Errors[i] != nil {
+			errors[i] = batchResult.Errors[i]
+		} else {
+			var result string
+			if err := json.Unmarshal(batchResult.Results[i], &result); err != nil {
+				errors[i] = err
+			} else {
+				results[i] = result
+			}
+		}
+	}
+
+	return results, errors, nil
+}
+
+// processBatchIntResults processes batch results and returns int arrays
+func (rpc *EthRPC) processBatchIntResults(requests []BatchRequest) ([]int, []error, error) {
+	batchResult, err := rpc.CallList(requests)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	results := make([]int, len(requests))
+	errors := make([]error, len(requests))
+
+	for i := 0; i < len(requests); i++ {
+		if batchResult.Errors[i] != nil {
+			errors[i] = batchResult.Errors[i]
+		} else {
+			var response string
+			if err := json.Unmarshal(batchResult.Results[i], &response); err != nil {
+				errors[i] = err
+			} else {
+				if result, parseErr := ParseInt(response); parseErr != nil {
+					errors[i] = parseErr
+				} else {
+					results[i] = result
+				}
+			}
+		}
+	}
+
+	return results, errors, nil
+}
+
+// processBatchBigIntResults processes batch results and returns big.Int arrays
+func (rpc *EthRPC) processBatchBigIntResults(requests []BatchRequest) ([]big.Int, []error, error) {
+	batchResult, err := rpc.CallList(requests)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	results := make([]big.Int, len(requests))
+	errors := make([]error, len(requests))
+
+	for i := 0; i < len(requests); i++ {
+		if batchResult.Errors[i] != nil {
+			errors[i] = batchResult.Errors[i]
+		} else {
+			var response string
+			if err := json.Unmarshal(batchResult.Results[i], &response); err != nil {
+				errors[i] = err
+			} else {
+				if result, parseErr := ParseBigInt(response); parseErr != nil {
+					errors[i] = parseErr
+				} else {
+					results[i] = result
+				}
+			}
+		}
+	}
+
+	return results, errors, nil
+}
+
+// processBatchTransactionResults processes batch results and returns Transaction arrays
+func (rpc *EthRPC) processBatchTransactionResults(requests []BatchRequest) ([]*Transaction, []error, error) {
+	batchResult, err := rpc.CallList(requests)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	results := make([]*Transaction, len(requests))
+	errors := make([]error, len(requests))
+
+	for i := 0; i < len(requests); i++ {
+		if batchResult.Errors[i] != nil {
+			errors[i] = batchResult.Errors[i]
+		} else {
+			transaction := new(Transaction)
+			if err := json.Unmarshal(batchResult.Results[i], transaction); err != nil {
+				errors[i] = err
+			} else {
+				results[i] = transaction
+			}
+		}
+	}
+
+	return results, errors, nil
+}
+
+// processBatchTransactionReceiptResults processes batch results and returns TransactionReceipt arrays
+func (rpc *EthRPC) processBatchTransactionReceiptResults(requests []BatchRequest) ([]*TransactionReceipt, []error, error) {
+	batchResult, err := rpc.CallList(requests)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	results := make([]*TransactionReceipt, len(requests))
+	errors := make([]error, len(requests))
+
+	for i := 0; i < len(requests); i++ {
+		if batchResult.Errors[i] != nil {
+			errors[i] = batchResult.Errors[i]
+		} else {
+			receipt := new(TransactionReceipt)
+			if err := json.Unmarshal(batchResult.Results[i], receipt); err != nil {
+				errors[i] = err
+			} else {
+				results[i] = receipt
+			}
+		}
+	}
+
+	return results, errors, nil
+}
+
+// processBatchBlockResults processes batch results and returns Block arrays
+func (rpc *EthRPC) processBatchBlockResults(requests []BatchRequest) ([]*Block, []error, error) {
+	batchResult, err := rpc.CallList(requests)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	results := make([]*Block, len(requests))
+	errors := make([]error, len(requests))
+
+	for i := 0; i < len(requests); i++ {
+		if batchResult.Errors[i] != nil {
+			errors[i] = batchResult.Errors[i]
+		} else {
+			if bytes.Equal(batchResult.Results[i], []byte("null")) {
+				results[i] = nil
+				continue
+			}
+
+			// Determine if this is a block with transactions
+			var response proxyBlock
+			// Try to detect if it has transactions by checking the structure
+			var tempMap map[string]interface{}
+			if err := json.Unmarshal(batchResult.Results[i], &tempMap); err != nil {
+				errors[i] = err
+				continue
+			}
+
+			if transactions, exists := tempMap["transactions"]; exists {
+				if txArray, ok := transactions.([]interface{}); ok && len(txArray) > 0 {
+					if _, isString := txArray[0].(string); !isString {
+						// Has full transaction objects
+						response = new(proxyBlockWithTransactions)
+					} else {
+						// Has only transaction hashes
+						response = new(proxyBlockWithoutTransactions)
+					}
+				} else {
+					// Empty transactions array
+					response = new(proxyBlockWithoutTransactions)
+				}
+			} else {
+				// No transactions field
+				response = new(proxyBlockWithoutTransactions)
+			}
+
+			if err := json.Unmarshal(batchResult.Results[i], response); err != nil {
+				errors[i] = err
+			} else {
+				block := response.toBlock()
+				results[i] = &block
+			}
+		}
+	}
+
+	return results, errors, nil
 }
 
 // RawCall returns raw response of method call (Deprecated)
@@ -707,6 +1101,206 @@ func (rpc *EthRPC) SubscribeFilterLogs(ctx context.Context, q ethereum.FilterQue
 // Eth1 returns 1 ethereum value (10^18 wei)
 func (rpc *EthRPC) Eth1() *big.Int {
 	return Eth1()
+}
+
+// WaitForTransactionReceipt 等待交易完成并返回交易回执
+// 会持续轮询直到交易成功或失败
+func (rpc *EthRPC) WaitForTransactionReceipt(txHash string, timeout time.Duration, pollInterval time.Duration) (*TransactionReceipt, error) {
+	if pollInterval == 0 {
+		pollInterval = 2 * time.Second // 默认2秒轮询一次
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("timeout waiting for transaction %s", txHash)
+		case <-ticker.C:
+			receipt, err := rpc.EthGetTransactionReceipt(txHash)
+			if err != nil {
+				// 如果是因为交易还未被打包导致的错误，继续等待
+				continue
+			}
+			status, err := ParseInt64(receipt.Status)
+			if err != nil {
+				continue
+			}
+			switch status {
+			case 0:
+				continue
+			case 1:
+				rpc.log.Println(fmt.Sprintf("transfer for %d, By %s success!", receipt.BlockNumber, txHash))
+				return receipt, nil
+			default:
+				rpc.log.Println(fmt.Sprintf("transfer for %d, By %s Fail!", receipt.BlockNumber, txHash))
+				return receipt, fmt.Errorf("transfer for %d, By %s Fail!", receipt.BlockNumber, txHash)
+			}
+		}
+	}
+}
+
+// BatchWaitForTransactionReceipts 批量等待多个交易完成
+func (rpc *EthRPC) BatchWaitForTransactionReceipts(txHashes []string, timeout time.Duration, pollInterval time.Duration) ([]*TransactionReceipt, error) {
+	if pollInterval == 0 {
+		pollInterval = 2 * time.Second
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	results := make([]*TransactionReceipt, len(txHashes))
+	completed := make([]bool, len(txHashes))
+	completedCount := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("timeout waiting for transactions")
+		case <-ticker.C:
+			// 检查未完成的交易
+			pendingHashes := []string{}
+			pendingIndexes := []int{}
+
+			for i, hash := range txHashes {
+				if !completed[i] {
+					pendingHashes = append(pendingHashes, hash)
+					pendingIndexes = append(pendingIndexes, i)
+				}
+			}
+
+			if len(pendingHashes) == 0 {
+				return results, nil
+			}
+
+			// 批量检查交易状态
+			receipts, errs, err := rpc.BatchEthGetTransactionReceipt(pendingHashes)
+			if err != nil {
+				continue // 出错时继续轮询
+			}
+			if len(errs) > 0 {
+				return nil, errors.Join(errs...)
+			}
+
+			// 处理结果
+			for j, receipt := range receipts {
+				if receipt != nil {
+					originalIndex := pendingIndexes[j]
+					status, err := ParseInt64(receipt.Status)
+					if err != nil {
+						continue // 解析状态失败，继续等待
+					}
+					
+					switch status {
+					case 0:
+						// 交易失败，继续等待（或者可以选择立即返回错误）
+						continue
+					case 1:
+						// 交易成功
+						results[originalIndex] = receipt
+						completed[originalIndex] = true
+						completedCount++
+						if rpc.log != nil {
+							rpc.log.Println(fmt.Sprintf("transfer for %d, By %s success!", receipt.BlockNumber, pendingHashes[j]))
+						}
+					default:
+						// 其他状态，交易失败
+						results[originalIndex] = receipt
+						completed[originalIndex] = true
+						completedCount++
+						if rpc.log != nil {
+							rpc.log.Println(fmt.Sprintf("transfer for %d, By %s Fail!", receipt.BlockNumber, pendingHashes[j]))
+						}
+					}
+				}
+			}
+
+			if completedCount == len(txHashes) {
+				return results, nil
+			}
+		}
+	}
+}
+
+// MonitorTransactionStatus 监控单个交易状态变化
+type TransactionStatus struct {
+	TxHash  string
+	Status  string // "pending", "success", "failed"
+	Receipt *TransactionReceipt
+	Error   error
+}
+
+func (rpc *EthRPC) MonitorTransactionStatus(txHash string, statusChan chan<- TransactionStatus, timeout time.Duration, pollInterval time.Duration) {
+	if pollInterval == 0 {
+		pollInterval = 2 * time.Second
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	defer close(statusChan)
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	// 发送初始状态
+	statusChan <- TransactionStatus{
+		TxHash: txHash,
+		Status: "pending",
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			statusChan <- TransactionStatus{
+				TxHash: txHash,
+				Status: "timeout",
+				Error:  fmt.Errorf("timeout waiting for transaction %s", txHash),
+			}
+			return
+		case <-ticker.C:
+			receipt, err := rpc.EthGetTransactionReceipt(txHash)
+			if err != nil {
+				continue // 继续等待
+			}
+
+			if receipt != nil {
+				status, err := ParseInt64(receipt.Status)
+				if err != nil {
+					continue // 解析状态失败，继续等待
+				}
+				
+				switch status {
+				case 0:
+					// 交易失败，继续等待
+					continue
+				case 1:
+					// 交易成功
+					statusChan <- TransactionStatus{
+						TxHash:  txHash,
+						Status:  "success",
+						Receipt: receipt,
+					}
+					return
+				default:
+					// 其他状态，交易失败
+					statusChan <- TransactionStatus{
+						TxHash:  txHash,
+						Status:  "failed",
+						Receipt: receipt,
+						Error:   fmt.Errorf("transaction %s failed", txHash),
+					}
+					return
+				}
+			}
+		}
+	}
 }
 
 // Eth1 returns 1 ethereum value (10^18 wei)
