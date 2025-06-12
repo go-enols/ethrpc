@@ -1,8 +1,8 @@
 module github.com/go-enols/ethrpc
 
-go 1.23.0
+go 1.24.2
 
-toolchain go1.24.2
+toolchain go1.24.4
 
 require github.com/ethereum/go-ethereum v1.15.11
 
@@ -292,6 +292,7 @@ require (
 	github.com/glycerine/go-unsnap-stream v0.0.0-20180323001048-9f0cb55181dd // indirect
 	github.com/glycerine/goconvey v0.0.0-20190410193231-58a59202ab31 // indirect
 	github.com/go-chi/chi/v5 v5.0.0 // indirect
+	github.com/go-enols/go-log v0.0.5 // indirect
 	github.com/go-errors/errors v1.4.2 // indirect
 	github.com/go-fonts/dejavu v0.1.0 // indirect
 	github.com/go-fonts/latin-modern v0.2.0 // indirect

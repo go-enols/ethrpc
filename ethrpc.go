@@ -9,10 +9,9 @@ import (
 	"io"
 	"math/big"
 	"net/http"
-	"os"
 	"time"
 
-	"log"
+	"github.com/go-enols/go-log"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -60,8 +59,6 @@ type BatchResult struct {
 type EthRPC struct {
 	url    string
 	client httpClient
-	log    logger
-	Debug  bool
 }
 
 func (rpc *EthRPC) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
@@ -82,15 +79,16 @@ func (rpc *EthRPC) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
 
 // New create new rpc client with given url
 func New(url string, options ...func(rpc *EthRPC)) *EthRPC {
+	log.Infof("Creating new EthRPC client for URL: %s", url)
 	rpc := &EthRPC{
 		url:    url,
 		client: http.DefaultClient,
-		log:    log.New(os.Stderr, "", log.LstdFlags),
 	}
 	for _, option := range options {
 		option(rpc)
 	}
 
+	log.Debugf("EthRPC client created successfully for URL: %s", url)
 	return rpc
 }
 
@@ -104,19 +102,28 @@ func (rpc *EthRPC) CallContext(ctx context.Context, result interface{}, method s
 }
 
 func (rpc *EthRPC) call(method string, target interface{}, params ...interface{}) error {
+	log.Debugf("Calling method: %s with %d parameters", method, len(params))
 	if len(params) == 0 {
 		params = []interface{}{}
 	}
 	result, err := rpc.Call(method, params...)
 	if err != nil {
+		log.Errorf("Method %s call failed: %v", method, err)
 		return err
 	}
 
 	if target == nil {
+		log.Debugf("Method %s completed successfully (no target)", method)
 		return nil
 	}
 
-	return json.Unmarshal(result, target)
+	err = json.Unmarshal(result, target)
+	if err != nil {
+		log.Errorf("Failed to unmarshal result for method %s: %v", method, err)
+		return err
+	}
+	log.Debugf("Method %s completed successfully", method)
+	return nil
 }
 
 // URL returns client url
@@ -126,6 +133,9 @@ func (rpc *EthRPC) URL() string {
 
 // Call returns raw response of method call
 func (rpc *EthRPC) Call(method string, params ...interface{}) (json.RawMessage, error) {
+	start := time.Now()
+	log.Debugf("Starting RPC call: %s", method)
+	
 	request := ethRequest{
 		ID:      1,
 		JSONRPC: "2.0",
@@ -135,41 +145,51 @@ func (rpc *EthRPC) Call(method string, params ...interface{}) (json.RawMessage, 
 
 	body, err := json.Marshal(request)
 	if err != nil {
+		log.Errorf("Failed to marshal request for method %s: %v", method, err)
 		return nil, err
 	}
 
+	log.Debugf("Sending HTTP POST request to %s for method %s", rpc.url, method)
 	response, err := rpc.client.Post(rpc.url, "application/json", bytes.NewBuffer(body))
 	if response != nil {
 		defer response.Body.Close()
 	}
 	if err != nil {
+		log.Errorf("HTTP request failed for method %s: %v", method, err)
 		return nil, err
 	}
 
+	log.Debugf("Received HTTP response with status: %s for method %s", response.Status, method)
 	data, err := io.ReadAll(response.Body)
 	if err != nil {
+		log.Errorf("Failed to read response body for method %s: %v", method, err)
 		return nil, err
 	}
 
-	if rpc.Debug {
-		rpc.log.Println(fmt.Sprintf("%s\nRequest: %s\nResponse: %s\n", method, body, data))
-	}
+	duration := time.Since(start)
+	log.Debugf("%s\nRequest: %s\nResponse: %s\nDuration: %v", method, body, data, duration)
 
 	resp := new(ethResponse)
 	if err := json.Unmarshal(data, resp); err != nil {
+		log.Errorf("Failed to unmarshal response for method %s: %v", method, err)
 		return nil, err
 	}
 
 	if resp.Error != nil {
+		log.Errorf("RPC error for method %s: %v", method, *resp.Error)
 		return nil, *resp.Error
 	}
 
+	log.Debugf("RPC call %s completed successfully in %v", method, duration)
 	return resp.Result, nil
 
 }
 
 // CallList executes multiple JSON-RPC calls in a single batch request
 func (rpc *EthRPC) CallList(requests []BatchRequest) (*BatchResult, error) {
+	start := time.Now()
+	log.Infof("Starting batch RPC call with %d requests", len(requests))
+	
 	// Create batch request array
 	batchRequests := make([]ethRequest, len(requests))
 	for i, req := range requests {
@@ -179,35 +199,42 @@ func (rpc *EthRPC) CallList(requests []BatchRequest) (*BatchResult, error) {
 			Method:  req.Method,
 			Params:  req.Params,
 		}
+		log.Debugf("Batch request %d: method=%s, params_count=%d", i+1, req.Method, len(req.Params))
 	}
 
 	body, err := json.Marshal(batchRequests)
 	if err != nil {
+		log.Errorf("Failed to marshal batch requests: %v", err)
 		return nil, err
 	}
 
+	log.Debugf("Sending batch HTTP POST request to %s", rpc.url)
 	response, err := rpc.client.Post(rpc.url, "application/json", bytes.NewBuffer(body))
 	if response != nil {
 		defer response.Body.Close()
 	}
 	if err != nil {
+		log.Errorf("Batch HTTP request failed: %v", err)
 		return nil, err
 	}
 
+	log.Debugf("Received batch HTTP response with status: %s", response.Status)
 	data, err := io.ReadAll(response.Body)
 	if err != nil {
+		log.Errorf("Failed to read batch response body: %v", err)
 		return nil, err
 	}
 
-	if rpc.Debug {
-		rpc.log.Println(fmt.Sprintf("Batch Request: %s\nBatch Response: %s\n", body, data))
-	}
+	duration := time.Since(start)
+	log.Debugf("Batch Request: %s\nBatch Response: %s\nDuration: %v", body, data, duration)
 
 	// Parse batch response
 	var batchResponses []ethResponse
 	if err := json.Unmarshal(data, &batchResponses); err != nil {
+		log.Errorf("Failed to unmarshal batch response: %v", err)
 		return nil, err
 	}
+	log.Debugf("Successfully parsed %d batch responses", len(batchResponses))
 
 	// Process results and errors
 	results := make([]json.RawMessage, len(requests))
@@ -236,6 +263,17 @@ func (rpc *EthRPC) CallList(requests []BatchRequest) (*BatchResult, error) {
 		}
 	}
 
+	successCount := 0
+	errorCount := 0
+	for _, err := range errors {
+		if err == nil {
+			successCount++
+		} else {
+			errorCount++
+		}
+	}
+	
+	log.Infof("Batch RPC call completed in %v: %d successful, %d failed", time.Since(start), successCount, errorCount)
 	return &BatchResult{
 		Results: results,
 		Errors:  errors,
@@ -587,12 +625,20 @@ func (rpc *EthRPC) NetListening() (bool, error) {
 
 // NetPeerCount returns number of peers currently connected to the client.
 func (rpc *EthRPC) NetPeerCount() (int, error) {
+	log.Debugf("Getting peer count")
 	var response string
 	if err := rpc.call("net_peerCount", &response); err != nil {
+		log.Errorf("Failed to get peer count: %v", err)
 		return 0, err
 	}
 
-	return ParseInt(response)
+	peerCount, err := ParseInt(response)
+	if err != nil {
+		log.Errorf("Failed to parse peer count: %v", err)
+		return 0, err
+	}
+	log.Debugf("Current peer count: %d", peerCount)
+	return peerCount, nil
 }
 
 // EthProtocolVersion returns the current ethereum protocol version.
@@ -605,15 +651,24 @@ func (rpc *EthRPC) EthProtocolVersion() (string, error) {
 
 // EthSyncing returns an object with data about the sync status or false.
 func (rpc *EthRPC) EthSyncing() (*Syncing, error) {
+	log.Debugf("Checking node sync status")
 	result, err := rpc.RawCall("eth_syncing")
 	if err != nil {
+		log.Errorf("Failed to get sync status: %v", err)
 		return nil, err
 	}
 	syncing := new(Syncing)
 	if bytes.Equal(result, []byte("false")) {
+		log.Debugf("Node is fully synced")
 		return syncing, nil
 	}
 	err = json.Unmarshal(result, syncing)
+	if err != nil {
+		log.Errorf("Failed to parse sync status: %v", err)
+		return syncing, err
+	}
+	log.Infof("Node is syncing: current=%d, highest=%d, starting=%d", 
+		syncing.CurrentBlock, syncing.HighestBlock, syncing.StartingBlock)
 	return syncing, err
 }
 
@@ -635,23 +690,39 @@ func (rpc *EthRPC) EthMining() (bool, error) {
 
 // EthHashrate returns the number of hashes per second that the node is mining with.
 func (rpc *EthRPC) EthHashrate() (int, error) {
+	log.Debugf("Getting node hashrate")
 	var response string
 
 	if err := rpc.call("eth_hashrate", &response); err != nil {
+		log.Errorf("Failed to get hashrate: %v", err)
 		return 0, err
 	}
 
-	return ParseInt(response)
+	hashrate, err := ParseInt(response)
+	if err != nil {
+		log.Errorf("Failed to parse hashrate: %v", err)
+		return 0, err
+	}
+	log.Debugf("Current hashrate: %d H/s", hashrate)
+	return hashrate, nil
 }
 
 // EthGasPrice returns the current price per gas in wei.
 func (rpc *EthRPC) EthGasPrice() (big.Int, error) {
+	log.Debugf("Getting current gas price")
 	var response string
 	if err := rpc.call("eth_gasPrice", &response); err != nil {
+		log.Errorf("Failed to get gas price: %v", err)
 		return big.Int{}, err
 	}
 
-	return ParseBigInt(response)
+	gasPrice, err := ParseBigInt(response)
+	if err != nil {
+		log.Errorf("Failed to parse gas price: %v", err)
+		return big.Int{}, err
+	}
+	log.Debugf("Current gas price: %s wei", gasPrice.String())
+	return gasPrice, nil
 }
 
 // EthAccounts returns a list of addresses owned by client.
@@ -664,22 +735,38 @@ func (rpc *EthRPC) EthAccounts() ([]string, error) {
 
 // EthBlockNumber returns the number of most recent block.
 func (rpc *EthRPC) EthBlockNumber() (int, error) {
+	log.Debugf("Getting latest block number")
 	var response string
 	if err := rpc.call("eth_blockNumber", &response); err != nil {
+		log.Errorf("Failed to get block number: %v", err)
 		return 0, err
 	}
 
-	return ParseInt(response)
+	blockNumber, err := ParseInt(response)
+	if err != nil {
+		log.Errorf("Failed to parse block number: %v", err)
+		return 0, err
+	}
+	log.Debugf("Latest block number: %d", blockNumber)
+	return blockNumber, nil
 }
 
 // EthGetBalance returns the balance of the account of given address in wei.
 func (rpc *EthRPC) EthGetBalance(address, block string) (big.Int, error) {
+	log.Debugf("Getting balance for address: %s at block: %s", address, block)
 	var response string
 	if err := rpc.call("eth_getBalance", &response, address, block); err != nil {
+		log.Errorf("Failed to get balance for %s: %v", address, err)
 		return big.Int{}, err
 	}
 
-	return ParseBigInt(response)
+	balance, err := ParseBigInt(response)
+	if err != nil {
+		log.Errorf("Failed to parse balance for %s: %v", address, err)
+		return big.Int{}, err
+	}
+	log.Debugf("Balance for %s: %s wei", address, balance.String())
+	return balance, nil
 }
 
 // EthGetStorageAt returns the value from a storage position at a given address.
@@ -692,35 +779,59 @@ func (rpc *EthRPC) EthGetStorageAt(data string, position int, tag string) (strin
 
 // EthGetTransactionCount returns the number of transactions sent from an address.
 func (rpc *EthRPC) EthGetTransactionCount(address, block string) (int, error) {
+	log.Debugf("Getting transaction count for address: %s at block: %s", address, block)
 	var response string
 
 	if err := rpc.call("eth_getTransactionCount", &response, address, block); err != nil {
+		log.Errorf("Failed to get transaction count for %s: %v", address, err)
 		return 0, err
 	}
 
-	return ParseInt(response)
+	txCount, err := ParseInt(response)
+	if err != nil {
+		log.Errorf("Failed to parse transaction count for %s: %v", address, err)
+		return 0, err
+	}
+	log.Debugf("Transaction count for %s: %d", address, txCount)
+	return txCount, nil
 }
 
 // EthGetBlockTransactionCountByHash returns the number of transactions in a block from a block matching the given block hash.
 func (rpc *EthRPC) EthGetBlockTransactionCountByHash(hash string) (int, error) {
+	log.Debugf("Getting transaction count for block hash: %s", hash)
 	var response string
 
 	if err := rpc.call("eth_getBlockTransactionCountByHash", &response, hash); err != nil {
+		log.Errorf("Failed to get transaction count for block %s: %v", hash, err)
 		return 0, err
 	}
 
-	return ParseInt(response)
+	txCount, err := ParseInt(response)
+	if err != nil {
+		log.Errorf("Failed to parse transaction count for block %s: %v", hash, err)
+		return 0, err
+	}
+	log.Debugf("Transaction count for block %s: %d", hash, txCount)
+	return txCount, nil
 }
 
 // EthGetBlockTransactionCountByNumber returns the number of transactions in a block from a block matching the given block
 func (rpc *EthRPC) EthGetBlockTransactionCountByNumber(number int) (int, error) {
+	log.Debugf("Getting transaction count for block number: %d", number)
 	var response string
 
 	if err := rpc.call("eth_getBlockTransactionCountByNumber", &response, IntToHex(number)); err != nil {
+		log.Errorf("Failed to get transaction count for block %d: %v", number, err)
 		return 0, err
 	}
 
-	return ParseInt(response)
+	txCount, err := ParseInt(response)
+	if err != nil {
+		log.Errorf("Failed to parse transaction count for block %d: %v", number, err)
+		return 0, err
+	}
+	log.Debugf("Transaction count for block %d: %d", number, txCount)
+	return txCount, nil
 }
 
 // EthGetUncleCountByBlockHash returns the number of uncles in a block from a block matching the given block hash.
@@ -931,65 +1042,99 @@ func (rpc *EthRPC) EthGetFilterLogs(filterID string) ([]Log, error) {
 
 // EthGetLogs returns an array of all logs matching a given filter object.
 func (rpc *EthRPC) EthGetLogs(params FilterParams) ([]Log, error) {
+	log.Debugf("Getting logs with filter params: from=%v, to=%v, addresses=%v", params.FromBlock, params.ToBlock, params.Address)
 	var logs = []Log{}
 	err := rpc.call("eth_getLogs", &logs, params)
+	if err != nil {
+		log.Errorf("Failed to get logs: %v", err)
+		return logs, err
+	}
+	log.Debugf("Retrieved %d logs", len(logs))
 	return logs, err
 }
 
 // CodeAt returns the contract code of the given account.
 // The block number can be nil, in which case the code is taken from the latest known block.
 func (rpc *EthRPC) CodeAt(ctx context.Context, account common.Address, blockNumber *big.Int) ([]byte, error) {
+	log.Debugf("Getting contract code for account: %s at block: %v", account.Hex(), blockNumber)
 	var result hexutil.Bytes
 	err := rpc.call("eth_getCode", &result, account, toBlockNumArg(blockNumber))
+	if err != nil {
+		log.Errorf("Failed to get contract code for %s: %v", account.Hex(), err)
+		return result, err
+	}
+	log.Debugf("Retrieved contract code for %s: %d bytes", account.Hex(), len(result))
 	return result, err
 }
 
 func (rpc *EthRPC) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
+	log.Debugf("Calling contract: to=%s, data=%s, value=%v, gas=%d at block=%v", 
+		msg.To.Hex(), hexutil.Encode(msg.Data), msg.Value, msg.Gas, blockNumber)
 	var hex hexutil.Bytes
 	err := rpc.call("eth_call", &hex, toCallArg(msg), toBlockNumArg(blockNumber))
 	if err != nil {
+		log.Errorf("Contract call failed: to=%s, error=%v", msg.To.Hex(), err)
 		return nil, err
 	}
+	log.Debugf("Contract call successful: to=%s, result=%d bytes", msg.To.Hex(), len(hex))
 	return hex, nil
 }
 
 func (rpc *EthRPC) SendTransaction(ctx context.Context, tx *types.Transaction) error {
+	txHash := tx.Hash().Hex()
+	log.Infof("Sending transaction: hash=%s, to=%s, value=%s, gas=%d, gasPrice=%s", 
+		txHash, tx.To().Hex(), tx.Value().String(), tx.Gas(), tx.GasPrice().String())
+	
 	// 将交易序列化为RLP编码的十六进制字符串
 	data, err := tx.MarshalBinary()
 	if err != nil {
+		log.Errorf("Failed to marshal transaction %s: %v", txHash, err)
 		return err
 	}
 
 	// 发送原始交易
-	_, err = rpc.EthSendRawTransaction(hexutil.Encode(data))
+	sentHash, err := rpc.EthSendRawTransaction(hexutil.Encode(data))
+	if err != nil {
+		log.Errorf("Failed to send transaction %s: %v", txHash, err)
+		return err
+	}
+	log.Infof("Transaction sent successfully: hash=%s, sent_hash=%s", txHash, sentHash)
 	return err
 }
 
 func (rpc *EthRPC) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
+	log.Debugf("Getting block header by number: %v", number)
 	// 获取区块信息
 	var blockNum int
 	if number == nil {
 		// 获取最新区块号
+		log.Debugf("Getting latest block number")
 		latestNum, err := rpc.EthBlockNumber()
 		if err != nil {
+			log.Errorf("Failed to get latest block number: %v", err)
 			return nil, err
 		}
 		blockNum = latestNum
+		log.Debugf("Latest block number: %d", blockNum)
 	} else {
 		blockNum = int(number.Int64())
 	}
 
+	log.Debugf("Getting block %d details", blockNum)
 	block, err := rpc.EthGetBlockByNumber(blockNum, false)
 	if err != nil {
+		log.Errorf("Failed to get block %d: %v", blockNum, err)
 		return nil, err
 	}
 	if block == nil {
+		log.Warningf("Block %d not found", blockNum)
 		return nil, nil
 	}
 
 	// 解析Nonce
 	nonce, err := ParseInt64(block.Nonce)
 	if err != nil {
+		log.Errorf("Failed to parse nonce for block %d: %v", blockNum, err)
 		return nil, fmt.Errorf("failed to parse nonce: %v", err)
 	}
 
@@ -1009,6 +1154,8 @@ func (rpc *EthRPC) HeaderByNumber(ctx context.Context, number *big.Int) (*types.
 		Difficulty: (*big.Int)(&block.Difficulty),
 	}
 
+	log.Debugf("Successfully created header for block %d: hash=%s, gasUsed=%d, gasLimit=%d", 
+		blockNum, block.Hash, header.GasUsed, header.GasLimit)
 	return header, nil
 }
 
@@ -1104,10 +1251,11 @@ func (rpc *EthRPC) Eth1() *big.Int {
 }
 
 // WaitForTransactionReceipt 等待交易完成并返回交易回执
-// 会持续轮询直到交易成功或失败
 func (rpc *EthRPC) WaitForTransactionReceipt(txHash string, timeout time.Duration, pollInterval time.Duration) (*TransactionReceipt, error) {
+	log.Infof("Starting to wait for transaction receipt: %s (timeout: %v, poll interval: %v)", txHash, timeout, pollInterval)
 	if pollInterval == 0 {
 		pollInterval = 2 * time.Second // 默认2秒轮询一次
+		log.Debugf("Using default poll interval: %v", pollInterval)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -1116,28 +1264,37 @@ func (rpc *EthRPC) WaitForTransactionReceipt(txHash string, timeout time.Duratio
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
+	start := time.Now()
+	pollCount := 0
+
 	for {
 		select {
 		case <-ctx.Done():
+			log.Errorf("Timeout waiting for transaction %s after %v (%d polls)", txHash, time.Since(start), pollCount)
 			return nil, fmt.Errorf("timeout waiting for transaction %s", txHash)
 		case <-ticker.C:
+			pollCount++
+			log.Debugf("Polling transaction receipt %s (attempt %d)", txHash, pollCount)
 			receipt, err := rpc.EthGetTransactionReceipt(txHash)
 			if err != nil {
 				// 如果是因为交易还未被打包导致的错误，继续等待
+				log.Debugf("Transaction %s not yet mined, continuing to wait: %v", txHash, err)
 				continue
 			}
 			status, err := ParseInt64(receipt.Status)
 			if err != nil {
+				log.Warningf("Failed to parse transaction status for %s: %v", txHash, err)
 				continue
 			}
 			switch status {
 			case 0:
+				log.Debugf("Transaction %s still pending (status: 0)", txHash)
 				continue
 			case 1:
-				rpc.log.Println(fmt.Sprintf("transfer for %d, By %s success!", receipt.BlockNumber, txHash))
+				log.Infof("Transaction %s successful in block %d after %v (%d polls)", txHash, receipt.BlockNumber, time.Since(start), pollCount)
 				return receipt, nil
 			default:
-				rpc.log.Println(fmt.Sprintf("transfer for %d, By %s Fail!", receipt.BlockNumber, txHash))
+				log.Errorf("Transaction %s failed in block %d with status %d after %v (%d polls)", txHash, receipt.BlockNumber, status, time.Since(start), pollCount)
 				return receipt, fmt.Errorf("transfer for %d, By %s Fail!", receipt.BlockNumber, txHash)
 			}
 		}
@@ -1146,8 +1303,10 @@ func (rpc *EthRPC) WaitForTransactionReceipt(txHash string, timeout time.Duratio
 
 // BatchWaitForTransactionReceipts 批量等待多个交易完成
 func (rpc *EthRPC) BatchWaitForTransactionReceipts(txHashes []string, timeout time.Duration, pollInterval time.Duration) ([]*TransactionReceipt, error) {
+	log.Infof("Starting batch wait for %d transaction receipts (timeout: %v, poll interval: %v)", len(txHashes), timeout, pollInterval)
 	if pollInterval == 0 {
 		pollInterval = 2 * time.Second
+		log.Debugf("Using default poll interval: %v", pollInterval)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -1159,12 +1318,16 @@ func (rpc *EthRPC) BatchWaitForTransactionReceipts(txHashes []string, timeout ti
 	results := make([]*TransactionReceipt, len(txHashes))
 	completed := make([]bool, len(txHashes))
 	completedCount := 0
+	start := time.Now()
+	pollCount := 0
 
 	for {
 		select {
 		case <-ctx.Done():
+			log.Errorf("Timeout waiting for batch transactions after %v (%d polls, %d/%d completed)", time.Since(start), pollCount, completedCount, len(txHashes))
 			return nil, fmt.Errorf("timeout waiting for transactions")
 		case <-ticker.C:
+			pollCount++
 			// 检查未完成的交易
 			pendingHashes := []string{}
 			pendingIndexes := []int{}
@@ -1177,15 +1340,20 @@ func (rpc *EthRPC) BatchWaitForTransactionReceipts(txHashes []string, timeout ti
 			}
 
 			if len(pendingHashes) == 0 {
+				log.Infof("All %d batch transactions completed successfully in %v (%d polls)", len(txHashes), time.Since(start), pollCount)
 				return results, nil
 			}
+
+			log.Debugf("Batch poll %d: checking %d pending transactions", pollCount, len(pendingHashes))
 
 			// 批量检查交易状态
 			receipts, errs, err := rpc.BatchEthGetTransactionReceipt(pendingHashes)
 			if err != nil {
+				log.Warningf("Batch transaction receipt check failed, continuing: %v", err)
 				continue // 出错时继续轮询
 			}
 			if len(errs) > 0 {
+				log.Errorf("Batch transaction receipt errors: %v", errors.Join(errs...))
 				return nil, errors.Join(errs...)
 			}
 
@@ -1197,32 +1365,30 @@ func (rpc *EthRPC) BatchWaitForTransactionReceipts(txHashes []string, timeout ti
 					if err != nil {
 						continue // 解析状态失败，继续等待
 					}
-					
+
 					switch status {
 					case 0:
 						// 交易失败，继续等待（或者可以选择立即返回错误）
+						log.Debugf("Transaction %s still pending (status: 0)", pendingHashes[j])
 						continue
 					case 1:
 						// 交易成功
 						results[originalIndex] = receipt
 						completed[originalIndex] = true
 						completedCount++
-						if rpc.log != nil {
-							rpc.log.Println(fmt.Sprintf("transfer for %d, By %s success!", receipt.BlockNumber, pendingHashes[j]))
-						}
+						log.Infof("Batch transaction %s successful in block %d (%d/%d completed)", pendingHashes[j], receipt.BlockNumber, completedCount, len(txHashes))
 					default:
 						// 其他状态，交易失败
 						results[originalIndex] = receipt
 						completed[originalIndex] = true
 						completedCount++
-						if rpc.log != nil {
-							rpc.log.Println(fmt.Sprintf("transfer for %d, By %s Fail!", receipt.BlockNumber, pendingHashes[j]))
-						}
+						log.Errorf("Batch transaction %s failed in block %d with status %d (%d/%d completed)", pendingHashes[j], receipt.BlockNumber, status, completedCount, len(txHashes))
 					}
 				}
 			}
 
 			if completedCount == len(txHashes) {
+				log.Infof("All %d batch transactions completed in %v (%d polls)", len(txHashes), time.Since(start), pollCount)
 				return results, nil
 			}
 		}
@@ -1275,7 +1441,7 @@ func (rpc *EthRPC) MonitorTransactionStatus(txHash string, statusChan chan<- Tra
 				if err != nil {
 					continue // 解析状态失败，继续等待
 				}
-				
+
 				switch status {
 				case 0:
 					// 交易失败，继续等待

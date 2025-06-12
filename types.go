@@ -7,7 +7,7 @@ import (
 	"unsafe"
 )
 
-type TxStatus rune
+type TxStatus int
 
 const (
 	TxFail    TxStatus = iota - 1 // Fail 交易失败
